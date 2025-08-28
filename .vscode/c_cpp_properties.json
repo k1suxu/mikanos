@@ -1,0 +1,12 @@
+{
+  "configurations": [
+    {
+      "name": "UEFI",
+      "includePath": [
+        "/home/k1suxu/edk2/MdePkg/Include",
+        "/home/k1suxu/edk2/MdePkg/Include/X64"
+      ]
+    }
+  ],
+  "version": 4
+}
