@@ -1,2 +1,5 @@
 utils/disk.img
 utils/mnt
+kernel/clang*
+*.o
+*.elf
