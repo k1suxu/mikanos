@@ -1,4 +1,4 @@
-# エラー
+# エラー (2025/08/28)
 > /.../edk2/MikanLoaderPkg/MikanLoaderPkg.dsc(...): error 4000: Instance of library class [RegisterFilterLib] is not found
         in [/.../edk2/MdePkg/Library/BaseLib/BaseLib.inf] [X64]
         consumed by module [/.../edk2/MikanLoaderPkg/Loader.inf]
