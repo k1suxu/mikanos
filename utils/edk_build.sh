@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e # 失敗したら止まるようにしたい
+
 CUR_PATH=$(pwd)
 EDK2_DIR="$HOME/edk2"
 KERNEL_PATH="$CUR_PATH/../kernel"

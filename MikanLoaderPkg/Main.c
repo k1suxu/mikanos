@@ -256,9 +256,9 @@ EFI_STATUS EFIAPI UefiMain(
   
   UINT64 entry_addr = *(UINT64*)(kernel_base_addr + 24); // ELFファイルのエントリポイントアドレスは24-32バイト目に書かれてる
 
-  typedef void EntryPointType(void); // void(void)関数の型をtypedefする
+  typedef void EntryPointType(UINT64, UINT64); // void(void)関数の型をtypedefする
   EntryPointType* entry_point = (EntryPointType*)entry_addr;
-  entry_point();
+  entry_point(gop->Mode->FrameBufferBase, gop->Mode->FrameBufferSize);
   
   // ここの処理は呼ばれないはず(kernelの方で無限ループさせる)
   Print(L"All done\n");
