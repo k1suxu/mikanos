@@ -188,6 +188,7 @@ EFI_STATUS EFIAPI UefiMain(
 
 
   /*** get GOP data ***/
+  // ほんとは異なり、描画情報を白塗りつぶしの後に出力している
   EFI_GRAPHICS_OUTPUT_PROTOCOL* gop;
   OpenGOP(image_handle, &gop);
 
