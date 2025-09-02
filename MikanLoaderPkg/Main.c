@@ -2,6 +2,7 @@
 #include <Library/UefiLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/PrintLib.h>
+#include <Library/MemoryAllocationLib.h>
 #include <Protocol/LoadedImage.h>
 #include <Protocol/SimpleFileSystem.h>
 #include <Protocol/DiskIo2.h>
@@ -31,11 +32,11 @@ EFI_STATUS GetMemoryMap(struct MemoryMap* map) {
 
   map->map_size = map->buffer_size;
   return gBS->GetMemoryMap(
-      &map->map_size,
-      (EFI_MEMORY_DESCRIPTOR*)map->buffer,
-      &map->map_key,
-      &map->descriptor_size,
-      &map->descriptor_version);
+    &map->map_size,
+    (EFI_MEMORY_DESCRIPTOR*)map->buffer,
+    &map->map_key,
+    &map->descriptor_size,
+    &map->descriptor_version);
 }
 
 const CHAR16* GetMemoryTypeUnicode(EFI_MEMORY_TYPE type) {
@@ -78,12 +79,14 @@ EFI_STATUS SaveMemoryMap(struct MemoryMap* map, EFI_FILE_PROTOCOL* file) {
        iter < (EFI_PHYSICAL_ADDRESS)map->buffer + map->map_size;
        iter += map->descriptor_size, i++) {
     EFI_MEMORY_DESCRIPTOR* desc = (EFI_MEMORY_DESCRIPTOR*)iter;
+
     len = AsciiSPrint(
-        buf, sizeof(buf),
-        "%u, %x, %-ls, %08lx, %lx, %lx\n",
-        i, desc->Type, GetMemoryTypeUnicode(desc->Type),
-        desc->PhysicalStart, desc->NumberOfPages,
-        desc->Attribute & 0xffffflu);
+      buf, sizeof(buf),
+      "%u, %x, %-ls, %08lx, %lx, %lx\n",
+      i, desc->Type, GetMemoryTypeUnicode(desc->Type),
+      desc->PhysicalStart, desc->NumberOfPages,
+      desc->Attribute & 0xffffflu);
+
     file->Write(file, &len, buf);
   }
 
@@ -95,30 +98,75 @@ EFI_STATUS OpenRootDir(EFI_HANDLE image_handle, EFI_FILE_PROTOCOL** root) {
   EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* fs;
 
   gBS->OpenProtocol(
-      image_handle,
-      &gEfiLoadedImageProtocolGuid,
-      (VOID**)&loaded_image,
-      image_handle,
-      NULL,
-      EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+    image_handle,
+    &gEfiLoadedImageProtocolGuid,
+    (VOID**)&loaded_image,
+    image_handle,
+    NULL,
+    EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
 
   gBS->OpenProtocol(
-      loaded_image->DeviceHandle,
-      &gEfiSimpleFileSystemProtocolGuid,
-      (VOID**)&fs,
-      image_handle,
-      NULL,
-      EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+    loaded_image->DeviceHandle,
+    &gEfiSimpleFileSystemProtocolGuid,
+    (VOID**)&fs,
+    image_handle,
+    NULL,
+    EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
 
   fs->OpenVolume(fs, root);
 
   return EFI_SUCCESS;
 }
 
+// UEFI の GOP (Graphics Output Protocol) を利用して描画情報を取得
+EFI_STATUS OpenGOP(EFI_HANDLE image_handle,
+                   EFI_GRAPHICS_OUTPUT_PROTOCOL** gop) {
+  UINTN num_gop_handles = 0;
+  EFI_HANDLE* gop_handles = NULL;
+  gBS->LocateHandleBuffer(
+    ByProtocol,
+    &gEfiGraphicsOutputProtocolGuid,
+    NULL,
+    &num_gop_handles,
+    &gop_handles);
+  
+  gBS->OpenProtocol(
+    gop_handles[0],
+    &gEfiGraphicsOutputProtocolGuid,
+    (VOID**)gop,
+    image_handle,
+    NULL,
+    EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+
+  FreePool(gop_handles);
+
+  return EFI_SUCCESS;
+}
+
+const CHAR16* GetPixelFormatUnicode(EFI_GRAPHICS_PIXEL_FORMAT fmt) {
+  switch (fmt) {
+    case PixelRedGreenBlueReserved8BitPerColor:
+      return L"RedGreenBlueReserved8BitPerColor";
+    case PixelBlueGreenRedReserved8BitPerColor:
+      return L"PixelBlueGreenRedReserved8BitPerColor";
+    case PixelBitMask:
+      return L"PixelBitMask";
+    case PixelBltOnly:
+      return L"PixelBltOnly";
+    case PixelFormatMax:
+      return L"PixelFormatMax";
+    default:
+      return L"InvalidPixelFormat";
+  }
+}
+
 // EFIAPI: 空文字列(プログラマ用の文字列)
 EFI_STATUS EFIAPI UefiMain(
     EFI_HANDLE image_handle,
     EFI_SYSTEM_TABLE* system_table) {
+
+
+  /*** memory map ***/
   Print(L"Hello, Mikan World!\n");
 
   CHAR8 memmap_buf[4096 * 4];
@@ -131,13 +179,35 @@ EFI_STATUS EFIAPI UefiMain(
   EFI_FILE_PROTOCOL* memmap_file;
   // RW権限でO_CREATE
   root_dir->Open(
-      root_dir, &memmap_file, L"\\memmap",
-      EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0);
+    root_dir, &memmap_file, L"\\memmap",
+    EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0);
 
   SaveMemoryMap(&memmap, memmap_file);
   memmap_file->Close(memmap_file);
 
 
+
+  /*** get GOP data ***/
+  EFI_GRAPHICS_OUTPUT_PROTOCOL* gop;
+  OpenGOP(image_handle, &gop);
+
+  UINT8* frame_buffer = (UINT8*)gop->Mode->FrameBufferBase;
+  for (UINTN i = 0; i < gop->Mode->FrameBufferSize; i++) {
+    frame_buffer[i] = 255; // 一旦は白で塗りつぶし。
+  }
+
+  Print(L"Resolution: %ux%u, Pixel Format: %s, %u pixels/line\n",
+    gop->Mode->Info->HorizontalResolution,
+    gop->Mode->Info->VerticalResolution,
+    GetPixelFormatUnicode(gop->Mode->Info->PixelFormat),
+    gop->Mode->Info->PixelsPerScanLine);
+  Print(L"Frame Buffer: 0x%0lx - 0x%0lx, Size: %lu bytes\n",
+    gop->Mode->FrameBufferBase,
+    gop->Mode->FrameBufferBase + gop->Mode->FrameBufferSize,
+    gop->Mode->FrameBufferSize);
+  
+
+  /*** read kernel and put on memory ***/
   // ファイルopenの流れは、
   // 1. ブートローダでカーネルファイルを読み込み (Open)
   // 2. ファイル全体を確保できるメモリ領域の確保 (GetInfo, AllocatePages)
@@ -145,8 +215,8 @@ EFI_STATUS EFIAPI UefiMain(
   EFI_FILE_PROTOCOL* kernel_file;
   // kernel.eflをreadモードでopenする
   root_dir->Open(
-      root_dir, &kernel_file, L"\\kernel.elf",
-      EFI_FILE_MODE_READ, 0);
+    root_dir, &kernel_file, L"\\kernel.elf",
+    EFI_FILE_MODE_READ, 0);
 
   UINTN file_info_size = sizeof(EFI_FILE_INFO) + sizeof(CHAR16) * 12;
   UINT8 file_info_buffer[file_info_size]; // file_info_sizeバイト(*8ビット)の領域を確保
@@ -154,16 +224,16 @@ EFI_STATUS EFIAPI UefiMain(
   // kernel_fileの情報を取得。この際、file_info_sizeも実際の値に変化される
   // GetInfo(ファイル, , ファイル情報サイズ(実際のものに変更される), ファイル情報格納バッファ)
   kernel_file->GetInfo(
-      kernel_file, &gEfiFileInfoGuid,
-      &file_info_size, file_info_buffer);
+    kernel_file, &gEfiFileInfoGuid,
+    &file_info_size, file_info_buffer);
   
   EFI_FILE_INFO* file_info = (EFI_FILE_INFO*)file_info_buffer;
   UINTN kernel_file_size = file_info->FileSize;
 
   EFI_PHYSICAL_ADDRESS kernel_base_addr = 0x100000;
   gBS->AllocatePages(
-      AllocateAddress, EfiLoaderData,
-      (kernel_file_size + 0xfff) / 0x1000, &kernel_base_addr);
+    AllocateAddress, EfiLoaderData,
+    (kernel_file_size + 0xfff) / 0x1000, &kernel_base_addr);
   kernel_file->Read(kernel_file, &kernel_file_size, (VOID*)kernel_base_addr);
   Print(L"Kernel: 0x%0lx (%lu bytes)\n", kernel_base_addr, kernel_file_size);
 
