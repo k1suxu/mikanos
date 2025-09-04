@@ -60,12 +60,12 @@ class BGRResv8BitPerColorPixelWriter : public PixelWriter {
 };
 
 // sizeはコンパイラから自動で渡されるらしい？？ [TODO]
-void* operator new(size_t size, void *buf) {
+void* operator new(size_t size, void* buf) {
   return buf;
 }
 
 // destructorで呼ばれるので便宜上定義しとく
-void operator delete(void *obj) noexcept {}
+void operator delete(void* obj) noexcept {}
 
 char pixel_writer_buf[sizeof(RGBResv8BitPerColorPixelWriter)];
 PixelWriter* pixel_writer;

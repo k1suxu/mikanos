@@ -3,12 +3,14 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/PrintLib.h>
 #include <Library/MemoryAllocationLib.h>
+#include <Library/BaseMemoryLib.h>
 #include <Protocol/LoadedImage.h>
 #include <Protocol/SimpleFileSystem.h>
 #include <Protocol/DiskIo2.h>
 #include <Protocol/BlockIo.h>
 #include <Guid/FileInfo.h>
 #include "frame_buffer_config.hpp"
+#include "elf.hpp"
 
 // ファイルディスクリプタは、
 // - Type          (メモリ領域の種別)
@@ -184,6 +186,37 @@ void Halt(void) {
   while (1) __asm__("hlt");
 }
 
+// Loaderにおいて、該当ファイルのメモリ範囲(virtual)を取得する
+void CalcLoadAddressRange(Elf64_Ehdr* ehdr, UINT64* first, UINT64* last) {
+  // プログラムヘッダの位置はファイルヘッダのe_phoffに格納されチエル
+  Elf64_Phdr* phdr = (Elf64_Phdr*)((UINT64)ehdr + ehdr->e_phoff);
+  *first = MAX_UINT64;
+  *last = 0;
+  // プログラムヘッダ内の各セグメントに対して(virtual) addressのrangeを求めて、chmin, chmaxする
+  for (Elf64_Half i = 0; i < ehdr->e_phnum; i++) {
+    if (phdr[i].p_type != PT_LOAD) continue;
+    *first = MIN(*first, phdr[i].p_vaddr);
+    *last = MAX(*last, phdr[i].p_vaddr + phdr[i].p_memsz);
+  }
+}
+
+// Loadタイプのセグメントを対象の(virtual) addrへ格納
+void CopyLoadSegments(Elf64_Ehdr* ehdr) {
+  Elf64_Phdr* phdr = (Elf64_Phdr*)((UINT64)ehdr + ehdr->e_phoff);
+  for (Elf64_Half i = 0; i < ehdr->e_phnum; i++) {
+    if (phdr[i].p_type != PT_LOAD) continue;
+
+    // ファイル内における該当セグメントの開始アドレスを求める
+    UINT64 segm_in_file = (UINT64)ehdr + phdr[i].p_offset;
+    // CopyMem(dst, src, len)
+    CopyMem((VOID*)phdr[i].p_vaddr, (VOID*)segm_in_file, phdr[i].p_filesz);
+
+    // memszとfileszの差分を0埋めする(.bss等)
+    UINTN remain_bytes = phdr[i].p_memsz - phdr[i].p_filesz;
+    SetMem((VOID*)(phdr[i].p_vaddr + phdr[i].p_filesz), remain_bytes, 0);
+  }
+}
+
 // EFIAPI: 空文字列(プログラマ用の文字列)
 EFI_STATUS EFIAPI UefiMain(
     EFI_HANDLE image_handle,
@@ -233,7 +266,7 @@ EFI_STATUS EFIAPI UefiMain(
 
 
   /*** get GOP data ***/
-  // ほんとは異なり、描画情報を白塗りつぶしの後に出力している
+  // 本とは異なり、描画情報を白塗りつぶしの後に出力している
   EFI_GRAPHICS_OUTPUT_PROTOCOL* gop;
   status = OpenGOP(image_handle, &gop);
   if (EFI_ERROR(status)) {
@@ -258,12 +291,16 @@ EFI_STATUS EFIAPI UefiMain(
   
 
   /*** read kernel and put on memory ***/
-  // ファイルopenの流れは、
-  // 1. ブートローダでカーネルファイルを読み込み (Open)
-  // 2. ファイル全体を確保できるメモリ領域の確保 (GetInfo, AllocatePages)
-  // 3. ファイル内容をメモリに書き出す
-  EFI_FILE_PROTOCOL* kernel_file;
-  // kernel.eflをreadモードでopenする
+  // ファイルloaderの流れは、
+  // 1. UEFI Openプロトコルを用いてカーネルファイルを読み込み (Open)
+  // 2. ファイル情報(ファイル全体のサイズ)を取得
+  // 3. ファイルサイズ分のPoolをAllocatePoolで確保
+  // 4. 確保したPool領域にkernelファイル全体を読み込み、ヘッダ情報等を取得
+  // 5. ヘッダ情報を元にLOADセグメントを書きたいメモリ領域にPoolからCopy
+  // 6. 確保したPool領域の解放
+
+  EFI_FILE_PROTOCOL* kernel_file; // これ自体はUEFIのFILE_PROTOCOLであってkernelファイルそのものではない
+  // 1. kernel.eflをreadモードでopenする
   status = root_dir->Open(
     root_dir, &kernel_file, L"\\kernel.elf",
     EFI_FILE_MODE_READ, 0);
@@ -275,7 +312,7 @@ EFI_STATUS EFIAPI UefiMain(
   UINTN file_info_size = sizeof(EFI_FILE_INFO) + sizeof(CHAR16) * 12;
   UINT8 file_info_buffer[file_info_size]; // file_info_sizeバイト(*8ビット)の領域を確保
 
-  // kernel_fileの情報を取得。この際、file_info_sizeも実際の値に変化される
+  // 2. kernel_fileの情報を取得。この際、file_info_sizeも実際の値に変化される
   // GetInfo(ファイル, , ファイル情報サイズ(実際のものに変更される), ファイル情報格納バッファ)
   status = kernel_file->GetInfo(
     kernel_file, &gEfiFileInfoGuid,
@@ -288,20 +325,36 @@ EFI_STATUS EFIAPI UefiMain(
   EFI_FILE_INFO* file_info = (EFI_FILE_INFO*)file_info_buffer;
   UINTN kernel_file_size = file_info->FileSize;
 
-  EFI_PHYSICAL_ADDRESS kernel_base_addr = 0x100000;
-  status = gBS->AllocatePages(
-    AllocateAddress, EfiLoaderData,
-    (kernel_file_size + 0xfff) / 0x1000, &kernel_base_addr);
+  // 3. Poolを確保
+  VOID* kernel_buffer;
+  status = gBS->AllocatePool(EfiLoaderData, kernel_file_size, &kernel_buffer);
   if (EFI_ERROR(status)) {
-    Print(L"failed to allocate pages: %r\n", status);
+    Print(L"failed to allocate pool: %r\n", status);
     Halt();
   }
-  status = kernel_file->Read(kernel_file, &kernel_file_size, (VOID*)kernel_base_addr);
+  // 4-a. UEFI Readプロトコルを用いて、ストレージからRead(読み出してPoolに書き込み)
+  status = kernel_file->Read(kernel_file, &kernel_file_size, kernel_buffer);
   if (EFI_ERROR(status)) {
     Print(L"error: %r\n", status);
     Halt();
   }
-  Print(L"Kernel: 0x%0lx (%lu bytes)\n", kernel_base_addr, kernel_file_size);
+
+  // 4-b. ファイルサイズの計算
+  Elf64_Ehdr* kernel_ehdr = (Elf64_Ehdr*)kernel_buffer;
+  UINT64 kernel_first_addr, kernel_last_addr;
+  CalcLoadAddressRange(kernel_ehdr, &kernel_first_addr, &kernel_last_addr);
+  // 5. 一次退避領域から実際に入れたいメモリ領域に移す
+  UINTN num_pages = (kernel_last_addr - kernel_first_addr + 0xfff) / 0x1000;
+  status = gBS->AllocatePages(AllocateAddress, EfiLoaderData,
+                              num_pages, &kernel_first_addr);
+  if (EFI_ERROR(status)) {
+    Print(L"failed to allocate pages: %r\n", status);
+    Halt();
+  }
+
+  // 6. Poolを解放
+  CopyLoadSegments(kernel_ehdr);
+  Print(L"Kernel: 0x%0lx - 0x%0lx\n", kernel_first_addr, kernel_last_addr);
 
   status = gBS->ExitBootServices(image_handle, memmap.map_key);
   if (EFI_ERROR(status)) {
@@ -318,7 +371,7 @@ EFI_STATUS EFIAPI UefiMain(
     }
   }
   
-  UINT64 entry_addr = *(UINT64*)(kernel_base_addr + 24); // ELFファイルのエントリポイントアドレスは24-32バイト目に書かれてる
+  UINT64 entry_addr = *(UINT64*)(kernel_first_addr + 24); // ELFファイルのエントリポイントアドレスは24-32バイト目に書かれてる
 
   struct FrameBufferConfig config = {
     (UINT8*)gop->Mode->FrameBufferBase,
