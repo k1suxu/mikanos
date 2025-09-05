@@ -18,7 +18,7 @@ OPTIONAL_CPP_FLAGS = -I$(BASEDIR)/include/c++/v1 -I$(BASEDIR)/include \
 										 -DEFIAPI='__attribute__((ms_abi))'
 LDFLAGS=-L$(BASEDIR)/lib
 
-SRC = main.cpp
+SRC = $(wildcard *.cpp)
 OBJ = $(SRC:.cpp=.o)
 OUTPUT = kernel.elf
 ENTRY = KernelMain
