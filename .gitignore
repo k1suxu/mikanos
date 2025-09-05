@@ -2,4 +2,6 @@ utils/disk.img
 utils/mnt
 clang*
 *.o
+*.d
 *.elf
+kernel/hankaku.bin

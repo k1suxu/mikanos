@@ -4,7 +4,8 @@
       "name": "UEFI",
       "includePath": [
         "/home/k1suxu/edk2/MdePkg/Include",
-        "/home/k1suxu/edk2/MdePkg/Include/X64"
+        "/home/k1suxu/edk2/MdePkg/Include/X64",
+        "/home/k1suxu/osbook/devenv/x86_64-elf/include"
       ]
     }
   ],
