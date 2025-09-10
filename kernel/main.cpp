@@ -1,7 +1,6 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstdio>
-#include <new>
 
 #include "frame_buffer_config.hpp"
 #include "graphics.hpp"

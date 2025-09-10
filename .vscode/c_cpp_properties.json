@@ -5,8 +5,10 @@
       "includePath": [
         "/home/k1suxu/edk2/MdePkg/Include",
         "/home/k1suxu/edk2/MdePkg/Include/X64",
-        "/home/k1suxu/osbook/devenv/x86_64-elf/include"
-      ]
+        "/home/k1suxu/osbook/devenv/x86_64-elf/include",
+        "/home/k1suxu/osbook/devenv/x86_64-elf/include/c++/v1"
+      ],
+      "intelliSenseMode": "clang-x64"
     }
   ],
   "version": 4
