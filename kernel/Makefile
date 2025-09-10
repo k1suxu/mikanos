@@ -24,7 +24,8 @@ LDFLAGS = -L$(BASEDIR)/lib --entry KernelMain -z norelro --image-base 0x100000 -
 # --- ソースファイル ---
 CPP = $(wildcard *.cpp)
 C   = $(wildcard *.c)
-OBJ = $(CPP:.cpp=.o) $(C:.c=.o)
+ASSEMBLY = $(wildcard *.asm)
+OBJ = $(CPP:.cpp=.o) $(C:.c=.o) $(ASSEMBLY:.asm=.o)
 
 # --- フォント ---
 FONT_TXT = hankaku.txt
@@ -47,6 +48,10 @@ $(TARGET): $(OBJ) $(FONT_OBJ)
 # C コンパイル
 %.o: %.c Makefile
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+
+# assembly to objectfile
+%.o: %.asm Makefile
+	nasm -f elf64 -o $@ $<
 
 # フォント生成
 $(FONT_BIN): $(FONT_TXT)
