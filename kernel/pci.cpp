@@ -102,7 +102,7 @@ namespace pci {
   }
 
   /**
-   * 移行、MakeAddressに渡すレジスタオフセットは p.142 のPCIコンフィギュレーション空間の構造に対応している
+   * 以降、MakeAddressに渡すレジスタオフセットは p.142 のPCIコンフィギュレーション空間の構造に対応している
    */
   uint16_t ReadVendorId(uint8_t bus, uint8_t device, uint8_t function) {
     WriteAddress(MakeAddress(bus, device, function, 0x00));
