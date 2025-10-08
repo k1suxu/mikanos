@@ -22,9 +22,9 @@ CPPFLAGS = -I$(BASEDIR)/include/c++/v1 -I$(BASEDIR)/include \
 LDFLAGS = -L$(BASEDIR)/lib --entry KernelMain -z norelro --image-base 0x100000 --static
 
 # --- ソースファイル ---
-CPP = $(wildcard *.cpp)
-C   = $(wildcard *.c)
-ASSEMBLY = $(wildcard *.asm)
+CPP = $(shell find . -name "*.cpp")
+C   = $(shell find . -name "*.c")
+ASSEMBLY = $(shell find . -name "*.asm")
 OBJ = $(CPP:.cpp=.o) $(C:.c=.o) $(ASSEMBLY:.asm=.o)
 
 # --- フォント ---
