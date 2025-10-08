@@ -4,4 +4,5 @@ clang*
 *.o
 *.d
 *.elf
+*.swp
 kernel/hankaku.bin

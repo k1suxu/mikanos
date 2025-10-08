@@ -39,7 +39,7 @@ TARGET = kernel.elf
 all: $(TARGET)
 
 $(TARGET): $(OBJ) $(FONT_OBJ)
-	$(LD) $(LDFLAGS) -o $@ $^ -lc
+	$(LD) $(LDFLAGS) -o $@ $^ -lc -lc++
 
 # C++ コンパイル
 %.o: %.cpp Makefile
