@@ -117,7 +117,7 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
   };
   printk("Welcome to MikanOS!\n");
 
-  // デフォルトでデバッグモードにしておく
+  // ログレベルの設定(cf. logger.hpp)
   SetLogLevel(kWarn);
 
   mouse_cursor = new(mouse_cursor_buf) MouseCursor{
